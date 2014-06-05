@@ -4,7 +4,7 @@
 // Pin configuration
 #define LED_PIN 2
 #define NRF24L01_CE 10 // PB2
-#define NRF24L01_SS 9  // PB3
+#define NRF24L01_SS 9  // PB1
 
 // missing defines
 #define CTL_NO_ERROR 1
