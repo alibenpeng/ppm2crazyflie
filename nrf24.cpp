@@ -4,8 +4,6 @@
 #include <SPI.h>
 
 int crazyflie_channel;
-//static float trim_pitch;
-//static float trim_roll;
 
 void nrf24_begin() {
   int data[5];
@@ -25,16 +23,8 @@ void nrf24_begin() {
   delay(15);
 
   Serial.println("activating radio...");
+
   // See if we can read a register.
-
-/*
-  for (int i=0; i<5; i++) {
-    data[i] = i + 26; //0x1a...0x1e
-  }
-  nrf24_write_register(0x0a, data, 5);
-*/
-
-  // Select device.
   nrf24_read_register(0x0a, data, 5);
 
   // Start radio in PTX mode.  Clear down interrupts.
@@ -59,7 +49,6 @@ void nrf24_write_cs(int state) {
   SPI.setBitOrder(MSBFIRST);
   SPI.setDataMode(SPI_MODE0);
   SPI.setClockDivider(SPI_CLOCK_DIV8);
-  //digitalWrite(NRF24L01_SS, state);
   if (state)
     PORTB |= _BV(1);
   else
@@ -67,7 +56,6 @@ void nrf24_write_cs(int state) {
 }
 
 void nrf24_write_ce(int state) {
-  //digitalWrite(NRF24L01_CE, state);
   if (state)
     PORTB |= _BV(2);
   else
@@ -332,10 +320,6 @@ int nrf24_wait_for_interrupt_and_acknowledge(NRF24_RADIO_t *self) {
                NRF24_STATUS_TX_DS |
                NRF24_STATUS_MAX_RT;
 
-#if DEBUG
-  Serial.print("interrupts=0x");
-  Serial.println(interrupts, HEX);
-#endif
   // FIXME: add timeout
 
 

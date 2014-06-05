@@ -1,17 +1,12 @@
-#include "Arduino.h"
 #include "ppm.h"
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
 
-#define PPM_TCNT TCNT1
 
 #define CHANNELS (8)
 volatile unsigned int ppm[CHANNELS];
 volatile int chan=-1;
-
-volatile int debug_edge_cnt;
-volatile int debug_timo_cnt;
 
 volatile char ppmNewData;
 volatile unsigned int timeOld;
@@ -22,10 +17,8 @@ volatile unsigned int timeOld;
 ISR (TIMER1_COMPA_vect) {
   if (chan!=-1) {
     ppmNewData=1;
-    //Serial.println("new PPM Data!");
   }
   chan=-1;
-  debug_timo_cnt++;
 }
 
 /**
@@ -47,7 +40,6 @@ ISR (TIMER1_CAPT_vect) {
     ppm[chan] = time;
   }
   chan++;
-  debug_edge_cnt++;
 }
 
 /**

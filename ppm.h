@@ -3,8 +3,6 @@
 #define T_OUT (3*F_CPU/1000) // 3ms = 36000 Ticks @ 12Mhz = Timeout
 
 extern volatile char ppmNewData;
-extern volatile int debug_timo_cnt;
-extern volatile int debug_edge_cnt;
 void ppmInit();
 unsigned char ppmGet(int n);
 

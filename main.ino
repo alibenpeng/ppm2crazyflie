@@ -4,7 +4,6 @@
 #include <avr/interrupt.h> /* for sei() */
 #include <util/delay.h> /* for _delay_ms() */
 #include <SPI.h>
-//#include <RCArduinoFastLib.h>
 
 #include "nrf24.h"
 #include "ppm.h"
@@ -89,7 +88,6 @@ void loop() {
   static int last_stat;
 
   // Setpoint command.
-  //setpoint.c = 0;
   setpoint.c = 3 << 4;
   setpoint.roll = 0;
   setpoint.pitch = 0;
