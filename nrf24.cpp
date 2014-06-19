@@ -1,7 +1,9 @@
 #include "Arduino.h"
 #include "nrf24.h"
-#include <avr/delay.h>
+#include <util/delay.h>
 #include <SPI.h>
+
+//#define DEBUG 1
 
 int crazyflie_channel;
 
@@ -57,9 +59,11 @@ void nrf24_write_cs(int state) {
 
 void nrf24_write_ce(int state) {
   if (state)
-    PORTB |= _BV(2);
+    //PORTB |= _BV(2);
+    PORTC |= _BV(5);
   else
-    PORTB &= ~(_BV(2));
+    //PORTB &= ~(_BV(2));
+    PORTC &= ~(_BV(5));
 }
 
 
@@ -351,7 +355,7 @@ int nrf24_wait_for_interrupt_and_acknowledge(NRF24_RADIO_t *self) {
   return stat;
 }
 
-int nrf24_send_packet(NRF24_RADIO_t *self, const CRAZYFLIE_COMMANDER_SETPOINT_t *payload, size_t payload_size, void *ack, size_t *ack_size) {
+int nrf24_send_packet(NRF24_RADIO_t *self, const void *payload, size_t payload_size, void *ack, size_t *ack_size) {
   int8_t stat;
 
   // Transmit packet.
@@ -426,5 +430,124 @@ void channel_scan(NRF24_RADIO_t *self) {
       break;
     }
   }
+}
+
+void cf_log_setup(NRF24_RADIO_t *self) {
+  CRAZYFLIE_CONSOLE_t ack;
+  unsigned int ack_size;
+  
+  // send a packet on logging port, cmd channel (port 5, ch 1) and create a log block (0x00) with ID 0xbb for var pm.vbat (0x00) with type float32 (0x07)
+  uint8_t payload[] = { 0x51, 0x00, 0xbb, 0x07, 0x00 };
+  nrf24_send_packet(self, &payload, sizeof(payload), &ack, &ack_size);
+
+  _delay_ms(10);
+
+  payload[1] = 0x03; // start log block
+  payload[2] = 0xbb; // log block id 0xbb
+  payload[3] = 0x05; // 50ms
+  nrf24_send_packet(self, &payload, 4, &ack, &ack_size);
+
+}
+
+#define PARAM_PORT 0x02
+#define TOC_CH 0x00
+#define CMD_PARAM_TOC_INFO 0x01
+#define CMD_PARAM_TOC_GET_ITEM 0x00
+
+uint8_t cf_find_hover_param(NRF24_RADIO_t *self) {
+  CRAZYFLIE_CONSOLE_t ack;
+  unsigned int ack_size;
+  const char group[] = "flightmode";
+  const char name[] = "althold";
+  uint8_t payload[3];
+  payload = { (PARAM_PORT << 4 | TOC_CH), 0x00 };
+  uint8_t num_params = 0;
+  uint8_t stat;
+  int param_id = 0;
+  bool match = 1;
+
+  Serial.print("getting param id for althold: 0x");
+  // get the number of parameters in TOC
+  stat = nrf24_send_packet(self, &payload, 2, &ack, &ack_size);
+  Serial.println(ack_size, HEX);
+  payload[1] = CMD_PARAM_TOC_INFO;
+  while (num_params <= 0) {
+    stat = nrf24_send_packet(self, &payload, 2, &ack, &ack_size);
+    Serial.print("ACK Size: 0x");
+    Serial.println(ack_size, HEX);
+
+    Serial.print("Packet Header: 0x");
+    Serial.println(ack.c, HEX);
+    Serial.print("Packet Payload[0]: 0x");
+    Serial.println(ack.console.data[0], HEX);
+    Serial.print("Packet Payload[1]: 0x");
+    Serial.println(ack.console.data[1], HEX);
+    if ((stat >= 0) && (ack_size > 0) && (ack.c == (PARAM_PORT << 4 | TOC_CH)) && (ack.console.data[0] == CMD_PARAM_TOC_INFO)) {
+      num_params = ack.console.data[1];
+      Serial.print("num_params: ");
+      Serial.println(num_params, DEC);
+    }
+  }
+
+  for (uint8_t i = 0; i < num_params; i++) {
+
+    payload[1] = CMD_PARAM_TOC_GET_ITEM;
+    payload[2] = i;
+
+    
+    while (1) {
+      stat = nrf24_send_packet(self, &payload, 3, &ack, &ack_size);
+      if ((stat >= 0) && (ack_size > 0) && (ack.c == (PARAM_PORT << 4 | TOC_CH)) && (ack.console.data[0] == CMD_PARAM_TOC_GET_ITEM) && (ack.console.data[1] == i)) {
+        break;
+      }
+    }
+
+    unsigned char * b = &(ack.console.data[3]);
+    Serial.print(ack.console.data[1]);
+    Serial.print(": ");
+    int j = 0;
+    match = 1;
+    while (*b != '\0') {
+      Serial.write(*b);
+      if (*b != group[j]) {
+        match = 0;
+      }
+      *b++;
+      j++;
+    }
+    *b++;
+    j=0;
+    Serial.print(".");
+    while (*b != '\0') {
+      Serial.write(*b);
+      if ((match == 0) || (*b != name[j])) {
+        match = 0;
+      }
+      *b++;
+      j++;
+    }
+    Serial.print(" - match: ");
+    Serial.println(match);
+
+    if (match) {
+      Serial.println("Found althold!");
+      param_id = ack.console.data[1];
+      break;
+    }
+  }
+  return param_id;
+}
+
+void cf_hovermode(NRF24_RADIO_t *self, bool hover) {
+  CRAZYFLIE_CONSOLE_t ack;
+  unsigned int ack_size;
+  static bool last_hover;
+  
+  if  (hover != last_hover) {
+    // send param to change param flightmode.althold
+    uint8_t payload[] = { 0x22, hover_id, hover };
+    nrf24_send_packet(self, &payload, sizeof(payload), &ack, &ack_size);
+  }
+  last_hover = hover;
 }
 

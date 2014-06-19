@@ -3,7 +3,7 @@
 
 // Pin configuration
 #define LED_PIN 2
-#define NRF24L01_CE 10 // PB2
+#define NRF24L01_CE 19 // PB2 change back to 10 for final version
 #define NRF24L01_SS 9  // PB1
 
 // missing defines
@@ -135,7 +135,7 @@ typedef struct NRF24_RADIO_s {
 } NRF24_RADIO_t;
 
 extern int crazyflie_channel;
-
+extern unsigned int hover_id;
 
 
 void nrf24_begin();
@@ -160,7 +160,10 @@ void nrf24_pulse_ce();
 void nrf24_transmit_packet(const uint8_t *payload, size_t payload_size);
 int nrf24_read_receive_packet(NRF24_RADIO_t *self, unsigned char *payload);
 int nrf24_wait_for_interrupt_and_acknowledge(NRF24_RADIO_t *self);
-int nrf24_send_packet(NRF24_RADIO_t *self, const CRAZYFLIE_COMMANDER_SETPOINT_t *payload, size_t payload_size, void *ack, size_t *ack_size);
+int nrf24_send_packet(NRF24_RADIO_t *self, const void *payload, size_t payload_size, void *ack, size_t *ack_size);
 void channel_scan(NRF24_RADIO_t *self);
 
+void cf_log_setup(NRF24_RADIO_t *self);
+uint8_t cf_find_hover_param(NRF24_RADIO_t *self);
+void cf_hovermode(NRF24_RADIO_t *self, bool hover);
 #endif

@@ -7,8 +7,10 @@
 
 #include "nrf24.h"
 #include "ppm.h"
+#include "telemetry.h"
 
 static byte reportBuffer[8];
+unsigned int hover_id;
 
 
 
@@ -21,7 +23,7 @@ void setup() {
   pinMode(8, INPUT); // ppm input
   pinMode(LED_PIN, OUTPUT);
 
-  Serial.begin(57600);
+  Serial.begin(9600); // 
   Serial.println("\r\n\r\nAli's PPM to Crazyflie module. Wooohoo1!\r\n");
   Serial.println(F_CPU);
 
@@ -54,12 +56,18 @@ void setup() {
   Serial.println("Scanning... Please wait");
 
   // Channel scan.
-  channel_scan(&radio);
 
   // If we didn't detect it, drop out.
-  if (crazyflie_channel == 0) {
-    Serial.println("ERROR: Crazyflie Not Detected");
+  while (crazyflie_channel == 0) {
+    channel_scan(&radio);
+    //Serial.println("ERROR: Crazyflie Not Detected");
+  }
+  hover_id = cf_find_hover_param(&radio);
+  cf_log_setup(&radio);
+
+/*
   } else {
+
     // Control copter.
     Serial.println("Crazyflie Go!");
 
@@ -69,6 +77,7 @@ void setup() {
     // Send command packets.
     nrf24_set_channel(&radio, crazyflie_channel);
   }
+*/
 
 
   //wdt_enable(WDTO_1S);
@@ -85,10 +94,14 @@ void loop() {
   CRAZYFLIE_CONSOLE_t ack;
   unsigned int ack_size;
   int stat;
-  static int last_stat;
+
+  bool hover;
+  bool armed;
+  bool xmode;
+  bool proto;
 
   // Setpoint command.
-  setpoint.c = 3 << 4;
+  setpoint.c = 3 << 4; // command port
   setpoint.roll = 0;
   setpoint.pitch = 0;
   setpoint.yaw = 0;
@@ -104,16 +117,31 @@ void loop() {
       }
     }
 
-    //setpoint.pitch = (float)(16 - report.right_joystick_y) / 16 * 50;
-    setpoint.yaw = (float)(reportBuffer[0] - 128) / 128 * 256;
-    setpoint.pitch = (float)(reportBuffer[1] - 128) / 128 * 50;
-    setpoint.thrust = reportBuffer[2] * 256;
-    setpoint.roll = (float)(reportBuffer[3] - 128) / 128 * 50;
+    setpoint.thrust = reportBuffer[2] * 256; // uint16, go mad!
+    setpoint.yaw = (float)(reportBuffer[0] - 128) / 128 * 200; // -200.0 - 200.0
+
+    // this is virtually uncontrollable. compensate in mixer settings!
+    setpoint.pitch = (float)(reportBuffer[1] - 128) / 128 * 360; // 360 degrees, FUCK YEAH!
+    setpoint.roll = (float)(reportBuffer[3] - 128) / 128 * 360; // 
+
+    // unused channels 5-8: use for hover and arm/disarm, x-mode and protocol select
+    hover = (reportBuffer[4] > 128) ? 1 : 0;
+    armed = (reportBuffer[5] > 128) ? 1 : 0;
+    xmode = (reportBuffer[6] > 128) ? 1 : 0;
+    proto = (reportBuffer[7] > 128) ? 1 : 0;
+
+    cf_hovermode(&radio, hover);
+
+    // arm/disarm
+    if (!armed)
+      setpoint.thrust = 0;
 
     // x-mode
-    float roll_copy = setpoint.roll;
-    setpoint.roll = 0.707 * (setpoint.roll - setpoint.pitch);
-    setpoint.pitch = 0.707 * (roll_copy + setpoint.pitch);
+    if (!xmode) {
+      float roll_copy = setpoint.roll;
+      setpoint.roll = 0.707 * (setpoint.roll - setpoint.pitch);
+      setpoint.pitch = 0.707 * (roll_copy + setpoint.pitch);
+    }
 
     setpoint.pitch = -setpoint.pitch;
       
@@ -125,5 +153,27 @@ void loop() {
   // Reflect status on link LED: on when good link, off when lost.
   digitalWrite(LED_PIN, stat > 0);
 
+  // Process console data coming back.
+  if (stat >= 0 && ack_size > 0) {
+    if ((ack.c >> 4) == 0) {
+      // Console data.
+      char *p = strchr((char *)ack.console.data, '\n');
+      if (p) {
+        p[1] = 0;
+      } else{
+        ack.console.data[ack_size-1] = 0;
+      }
+      // build data frames
+      //Serial.print("ACK Data: ");
+      //Serial.println((char *)ack.console.data);
+    } else if (((ack.c >> 4) == 5) && (ack.console.data[0] == 0xbb)) {
+      // Logging port.
+      static float fbat;
+      memcpy(&fbat, &ack.console.data[4], 4);
+      uint8_t vbat = (fbat * 1000) * 255 / 4200; // 255 = 4.22V = 4220mV
+
+      frskySendPacket(vbat);
+    }
+  }
 }
 
