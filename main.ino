@@ -1,8 +1,8 @@
 
 #include <avr/io.h>
 #include <avr/wdt.h>
-#include <avr/interrupt.h> /* for sei() */
-#include <util/delay.h> /* for _delay_ms() */
+#include <avr/interrupt.h>
+#include <util/delay.h>
 #include <SPI.h>
 
 #include "nrf24.h"
@@ -12,9 +12,20 @@
 static byte reportBuffer[8];
 unsigned int hover_id;
 
+#define DEBUG
 
+// classic RETA channel mapping
+#define CH_YAW 0
+#define CH_PITCH 1
+#define CH_THRUST 2
+#define CH_ROLL 3
+// channels 5-7: use for hover, arm/disarm and x-mode
+#define CH_HOVER 4
+#define CH_ARMED 5
+#define CH_XMODE 6
+#define CH_ALTHOLD_CHANGE 2
 
-/* ------------------------------------------------------------------------- */
+// -------------------------------------------------------------------------
 
 void setup() {
   int i;
@@ -56,31 +67,27 @@ void setup() {
   Serial.println("Scanning... Please wait");
 
   // Channel scan.
-
-  // If we didn't detect it, drop out.
   while (crazyflie_channel == 0) {
     channel_scan(&radio);
-    //Serial.println("ERROR: Crazyflie Not Detected");
+    Serial.println("ERROR: Crazyflie Not Detected");
   }
+
+  // Control copter.
+  Serial.println("Crazyflie Go!");
+
+  // Turn link LED on.
+  digitalWrite(LED_PIN, 1);
+
+  // Send command packets.
+  nrf24_set_channel(&radio, crazyflie_channel);
+
+  // find out the TOC id for flightmode.althold
   hover_id = cf_find_hover_param(&radio);
+
+  // set up FrSky compatible vbat logging. There can't be too much Serial output in the main loop for this to work.
   cf_log_setup(&radio);
 
-/*
-  } else {
-
-    // Control copter.
-    Serial.println("Crazyflie Go!");
-
-    // Turn link LED on.
-    digitalWrite(LED_PIN, 1);
-
-    // Send command packets.
-    nrf24_set_channel(&radio, crazyflie_channel);
-  }
-*/
-
-
-  //wdt_enable(WDTO_1S);
+  wdt_enable(WDTO_1S);
   ppmInit();
   sei();
   ppmNewData=1;
@@ -95,19 +102,16 @@ void loop() {
   unsigned int ack_size;
   int stat;
 
-  uint8_t thrust_factor;
-
   bool hover;
   bool armed;
   bool xmode;
-  bool proto;
 
-  // Setpoint command.
   setpoint.c = 3 << 4; // command port
   setpoint.roll = 0;
   setpoint.pitch = 0;
   setpoint.yaw = 0;
-  //wdt_reset();
+
+  wdt_reset();
 
   if (ppmNewData) {
     //Serial.println("new PPM Data!");
@@ -119,22 +123,25 @@ void loop() {
       }
     }
 
-    // unused channels 5-8: use for hover and arm/disarm, x-mode and protocol select
-    hover = (reportBuffer[4] > 128) ? 1 : 0;
-    armed = (reportBuffer[5] > 128) ? 1 : 0;
-    xmode = (reportBuffer[6] > 128) ? 1 : 0;
-    proto = (reportBuffer[7] > 128) ? 1 : 0;
+    hover = (reportBuffer[CH_HOVER] > 128) ? 1 : 0;
+    armed = (reportBuffer[CH_ARMED] > 128) ? 1 : 0;
+    xmode = (reportBuffer[CH_XMODE] > 128) ? 1 : 0;
 
     cf_hovermode(&radio, hover);
-    thrust_factor = hover ? 255 : 234; // in althold mode the CF expects 32767 to hold its altitude,
-                                       // but in normel mode MAX_THRUST is clamped to 60k
 
-    setpoint.thrust = reportBuffer[2] * (thrust_factor + 1) - 1;
-    setpoint.yaw = (float)(reportBuffer[0] - 128) / 128 * 200; // -200.0 - 200.0
+    if (hover) {
+      // in althold mode the CF expects 32767 to hold its altitude
+      setpoint.thrust = reportBuffer[CH_ALTHOLD_CHANGE] * 256 - 1;
+    } else {
+      // in normel mode MAX_THRUST is clamped to 60k
+      setpoint.thrust = reportBuffer[CH_THRUST] * 235;
+    }
+
+    setpoint.yaw = (float)(reportBuffer[CH_YAW] - 128) / 128 * 200; // -200.0 - 200.0
 
     // this is virtually uncontrollable. compensate in mixer settings!
-    setpoint.pitch = (float)(reportBuffer[1] - 128) / 128 * 360; // 360 degrees, FUCK YEAH!
-    setpoint.roll = (float)(reportBuffer[3] - 128) / 128 * 360; // 
+    setpoint.pitch = (float)(reportBuffer[CH_PITCH] - 128) / 128 * 360; // 360 degrees, FUCK YEAH!
+    setpoint.roll = (float)(reportBuffer[CH_ROLL] - 128) / 128 * 360; // 
 
     // arm/disarm
     if (!armed)
