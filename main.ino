@@ -95,6 +95,8 @@ void loop() {
   unsigned int ack_size;
   int stat;
 
+  uint8_t thrust_factor;
+
   bool hover;
   bool armed;
   bool xmode;
@@ -117,13 +119,6 @@ void loop() {
       }
     }
 
-    setpoint.thrust = reportBuffer[2] * 256; // uint16, go mad!
-    setpoint.yaw = (float)(reportBuffer[0] - 128) / 128 * 200; // -200.0 - 200.0
-
-    // this is virtually uncontrollable. compensate in mixer settings!
-    setpoint.pitch = (float)(reportBuffer[1] - 128) / 128 * 360; // 360 degrees, FUCK YEAH!
-    setpoint.roll = (float)(reportBuffer[3] - 128) / 128 * 360; // 
-
     // unused channels 5-8: use for hover and arm/disarm, x-mode and protocol select
     hover = (reportBuffer[4] > 128) ? 1 : 0;
     armed = (reportBuffer[5] > 128) ? 1 : 0;
@@ -131,6 +126,15 @@ void loop() {
     proto = (reportBuffer[7] > 128) ? 1 : 0;
 
     cf_hovermode(&radio, hover);
+    thrust_factor = hover ? 255 : 234; // in althold mode the CF expects 32767 to hold its altitude,
+                                       // but in normel mode MAX_THRUST is clamped to 60k
+
+    setpoint.thrust = reportBuffer[2] * (thrust_factor + 1) - 1;
+    setpoint.yaw = (float)(reportBuffer[0] - 128) / 128 * 200; // -200.0 - 200.0
+
+    // this is virtually uncontrollable. compensate in mixer settings!
+    setpoint.pitch = (float)(reportBuffer[1] - 128) / 128 * 360; // 360 degrees, FUCK YEAH!
+    setpoint.roll = (float)(reportBuffer[3] - 128) / 128 * 360; // 
 
     // arm/disarm
     if (!armed)
